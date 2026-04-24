@@ -1,11 +1,11 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Any, Optional, List
 from backend.core.shared_structs.agent.MessageLog import MessageLog
 from backend.core.shared_structs.agent.ApprovalRequest import ApprovalRequest
 
 class AgentSnapshot(BaseModel):
     """Wire-format representation of an Agent — no runtime fields (task, lock, on_event)."""
-    session_id: str
+    session_id: str = Field(..., serialization_alias="id")
     model: str
     mode: str
     status: str
@@ -16,3 +16,7 @@ class AgentSnapshot(BaseModel):
     pending_approvals: List[ApprovalRequest] = Field(default_factory=list)
     sub_agents: list = Field(default_factory=list)
     sub_branches: list = Field(default_factory=list)
+
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
+        kwargs.setdefault("by_alias", True)
+        return super().model_dump(**kwargs)

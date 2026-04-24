@@ -1151,6 +1151,21 @@ const Settings: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'general' | 'models' | 'usage' | 'commands'>('general');
   const [form, setForm] = useState<AppSettings>({ ...settings });
 
+  const effectiveDefaultModel = useMemo(() => {
+    if (modelOptions.flat.some((m) => m.value === form.default_model)) {
+      return form.default_model;
+    }
+    return modelOptions.flat[0]?.value ?? form.default_model;
+  }, [modelOptions.flat, form.default_model]);
+
+  // Sync form.default_model to effectiveDefaultModel when the saved model
+  // is no longer available (e.g., subscription disconnected, models changed).
+  useEffect(() => {
+    if (effectiveDefaultModel !== form.default_model) {
+      setForm((prev) => ({ ...prev, default_model: effectiveDefaultModel }));
+    }
+  }, [effectiveDefaultModel, form.default_model]);
+
   // When the modal opens with a requested tab (e.g., from the warning
   // banner's "Configure models" link), switch to it.
   useEffect(() => {
@@ -1469,7 +1484,7 @@ const Settings: React.FC = () => {
           </Box>
           <FormControl size="small" sx={{ minWidth: 220 }}>
             <Select
-              value={form.default_model}
+              value={effectiveDefaultModel}
               onChange={(e) => setForm({ ...form, default_model: e.target.value })}
               sx={{ fontSize: '0.85rem' }}
               MenuProps={{ PaperProps: { sx: { bgcolor: c.bg.surface, color: c.text.primary } } }}

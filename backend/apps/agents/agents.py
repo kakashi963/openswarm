@@ -144,10 +144,10 @@ async def get_session(session_id: str) -> dict:
 
 @agents.router.post("/launch_agent")
 async def launch_agent(
-    model: str = Body(),
-    mode: str = Body(),
-    system_prompt: str = Body(),
-    max_turns: int = Body(),
+    model: str = Body(default="sonnet"),
+    mode: str = Body(default="agent"),
+    system_prompt: str = Body(default=""),
+    max_turns: int = Body(default=100),
     dashboard_id: Optional[str] = Body(default=None),
 ) -> dict:
     agent: Agent = Agent(

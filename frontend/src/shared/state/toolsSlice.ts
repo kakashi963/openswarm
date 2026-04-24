@@ -158,7 +158,7 @@ export const discoverTools = createAsyncThunk(
 );
 
 export const fetchBuiltinPermissions = createAsyncThunk('tools/fetchBuiltinPermissions', async () => {
-  const res = await fetch(`${TOOLS_API}/builtin/permissions`);
+  const res = await fetch(`${TOOLS_API}/get_builtin_permissions`);
   const data = await res.json();
   return data.permissions as Record<string, string>;
 });
@@ -166,7 +166,7 @@ export const fetchBuiltinPermissions = createAsyncThunk('tools/fetchBuiltinPermi
 export const updateBuiltinPermissions = createAsyncThunk(
   'tools/updateBuiltinPermissions',
   async (permissions: Record<string, string>) => {
-    const res = await fetch(`${TOOLS_API}/builtin/permissions`, {
+    const res = await fetch(`${TOOLS_API}/update_builtin_permissions`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ permissions }),
