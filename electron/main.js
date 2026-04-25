@@ -166,6 +166,30 @@ function emitSplashStatus(payload) {
   }
 }
 
+// OS-tailored status copy. The "first launch is slow" experience has very
+// different causes per platform (Defender on Windows, Gatekeeper +
+// XProtect notarization scan on macOS), and naming the actual culprit
+// helps users feel like the wait is intentional rather than the app being
+// broken. Used by the long-wait branches in waitForBackend below.
+function osStillStartingText() {
+  if (process.platform === 'win32') {
+    return 'Still starting — Windows Defender is scanning files (first launch only)…';
+  }
+  if (process.platform === 'darwin') {
+    return 'Still starting — macOS is verifying the bundle (first launch only)…';
+  }
+  return 'Still starting (first launch is slower than subsequent launches)…';
+}
+function osTakingTooLongText() {
+  if (process.platform === 'win32') {
+    return 'Backend is taking longer than usual. Defender scans of 14k files can take a few minutes on slow drives.';
+  }
+  if (process.platform === 'darwin') {
+    return 'Backend is taking longer than usual. macOS first-launch checks can be slow on cold cache.';
+  }
+  return 'Backend is taking longer than usual. You can wait, view logs, or restart.';
+}
+
 /**
  * macOS GUI apps launched from Finder/Dock inherit a minimal PATH from launchd
  * (/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin) — none of the user's shell
@@ -294,15 +318,12 @@ function waitForBackend(port, opts = {}) {
       const elapsed = Date.now() - start;
       if (elapsed > 60_000 && !stillStartingNotified) {
         stillStartingNotified = true;
-        emitSplashStatus({
-          text: 'Still starting (first launch can take 2-3 minutes on Windows while Defender scans)…',
-          level: 'warning',
-        });
+        emitSplashStatus({ text: osStillStartingText(), level: 'warning' });
       }
       if (elapsed > 180_000 && !actionsShown) {
         actionsShown = true;
         emitSplashStatus({
-          text: 'Backend is taking unusually long. You can wait, view logs, or restart.',
+          text: osTakingTooLongText(),
           level: 'warning',
           showActions: true,
           logs: recentBackendStderr.slice(-20).join(''),
