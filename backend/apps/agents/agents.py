@@ -43,16 +43,24 @@ NINE_ROUTER_MODEL_MAP: dict[str, str] = {
     "haiku": "cc/claude-haiku-4-5-20251001",
 }
 
+CANONICAL_MODEL_MAP: dict[str, str] = {
+    alias: mid.removeprefix("cc/")
+    for alias, mid in NINE_ROUTER_MODEL_MAP.items()
+}
+
 def _resolve_nine_router_model(model: str, has_api_key: bool) -> str:
     """Resolve a model name for the active connection mode.
 
-    When using a direct API key the model passes through unchanged.
+    When using a direct API key, any ``cc/`` prefix is stripped (the model
+    may have come from 9Router's model list) and short aliases are mapped
+    to their canonical Anthropic model IDs.
     When routing through 9Router, short aliases are mapped to their
     ``cc/``-prefixed canonical IDs; models that already carry the prefix
     are returned as-is to avoid double-prefixing.
     """
     if has_api_key:
-        return model
+        clean = model.removeprefix("cc/")
+        return CANONICAL_MODEL_MAP.get(clean, clean)
     if model.startswith("cc/"):
         return model
     return NINE_ROUTER_MODEL_MAP.get(model, f"cc/{model}")

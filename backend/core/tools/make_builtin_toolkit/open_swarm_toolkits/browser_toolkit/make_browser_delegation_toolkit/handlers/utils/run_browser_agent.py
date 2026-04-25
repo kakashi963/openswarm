@@ -56,7 +56,7 @@ async def run_browser_agent(
     if child.task:
         await child.task
 
-    for m in reversed[AnyMessage](child.messages.messages):
+    for m in reversed(child.messages.messages):
         if isinstance(m, AssistantMessage):
             return m.content
 
