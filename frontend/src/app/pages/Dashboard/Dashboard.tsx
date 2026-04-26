@@ -115,38 +115,6 @@ const DashboardInner: React.FC<DashboardProps> = ({ dashboardId, isActive = true
   const glowingBrowserCards = useAppSelector((state) => state.dashboardLayout.glowingBrowserCards);
   const sessionList = Object.values(sessions);
 
-  // Reference-stable list of browser-agent sessions that need tethers.
-  // Without this, the tether useMemo below recomputes ~190 lines of SVG
-  // path math on every streamed token in any chat, because `sessionList`
-  // is a fresh array on every Dashboard re-render.
-  const browserAgentTetherSeedsRef = useRef<
-    Array<{ id: string; browser_id: string; parent_session_id: string }>
-  >([]);
-  const browserAgentTetherSeeds = useMemo(() => {
-    const next: Array<{ id: string; browser_id: string; parent_session_id: string }> = [];
-    for (const s of Object.values(sessions)) {
-      if (s.mode !== 'browser-agent') continue;
-      if (s.status !== 'running' && s.status !== 'waiting_approval') continue;
-      if (!s.browser_id || !s.parent_session_id) continue;
-      next.push({ id: s.id, browser_id: s.browser_id, parent_session_id: s.parent_session_id });
-    }
-    const prev = browserAgentTetherSeedsRef.current;
-    if (prev.length === next.length) {
-      let same = true;
-      for (let i = 0; i < prev.length; i++) {
-        if (prev[i].id !== next[i].id
-          || prev[i].browser_id !== next[i].browser_id
-          || prev[i].parent_session_id !== next[i].parent_session_id) {
-          same = false;
-          break;
-        }
-      }
-      if (same) return prev;
-    }
-    browserAgentTetherSeedsRef.current = next;
-    return next;
-  }, [sessions]);
-
   const contentBounds = useMemo(() => {
     const allRects = [
       ...Object.values(cards).map((c) => ({ x: c.x, y: c.y, w: c.width, h: c.height })),
@@ -515,7 +483,7 @@ const DashboardInner: React.FC<DashboardProps> = ({ dashboardId, isActive = true
 
   useEffect(() => {
     if (!pendingBrowserUrl || !layoutInitialized) return;
-    dispatch(addBrowserCard({ url: pendingBrowserUrl, expandedSessionIds, viewportWidth: window.innerWidth }));
+    dispatch(addBrowserCard({ url: pendingBrowserUrl, expandedSessionIds }));
     dispatch(clearPendingBrowserUrl());
   }, [pendingBrowserUrl, layoutInitialized, dispatch, expandedSessionIds]);
 
@@ -637,7 +605,7 @@ const DashboardInner: React.FC<DashboardProps> = ({ dashboardId, isActive = true
     const liveIds = dashboardSessionIds.sort().join(',');
     if (liveIds === prevSessionIdsRef.current) return;
     prevSessionIdsRef.current = liveIds;
-    dispatch(reconcileSessions({ sessionIds: dashboardSessionIds, expandedSessionIds, viewportWidth: window.innerWidth }));
+    dispatch(reconcileSessions({ sessionIds: dashboardSessionIds, expandedSessionIds }));
   }, [sessions, layoutInitialized, dispatch, dashboardId, expandedSessionIds]);
 
   // ---- Auto-reveal / collapse / unreveal sub-agent cards ----
@@ -1273,7 +1241,7 @@ const DashboardInner: React.FC<DashboardProps> = ({ dashboardId, isActive = true
   );
 
   const handleAddView = useCallback((outputId: string) => {
-    dispatch(addViewCard({ outputId, expandedSessionIds, viewportWidth: window.innerWidth }));
+    dispatch(addViewCard({ outputId, expandedSessionIds }));
     setTimeout(() => {
       const card = store.getState().dashboardLayout.viewCards[outputId];
       if (card) {
@@ -1286,7 +1254,7 @@ const DashboardInner: React.FC<DashboardProps> = ({ dashboardId, isActive = true
   const handleAddBrowser = useCallback(() => {
     trackEvent('dashboard.browser_added');
     const prevIds = new Set(Object.keys(store.getState().dashboardLayout.browserCards));
-    dispatch(addBrowserCard({ url: browserHomepage, expandedSessionIds, viewportWidth: window.innerWidth }));
+    dispatch(addBrowserCard({ url: browserHomepage, expandedSessionIds }));
     setTimeout(() => {
       const allBrowserCards = store.getState().dashboardLayout.browserCards;
       const newId = Object.keys(allBrowserCards).find((id) => !prevIds.has(id));
@@ -1331,7 +1299,7 @@ const DashboardInner: React.FC<DashboardProps> = ({ dashboardId, isActive = true
   const handleTidy = useCallback(() => {
     trackEvent('dashboard.tidy_layout');
     const currentExpanded = store.getState().agents.expandedSessionIds;
-    dispatch(tidyLayout({ expandedSessionIds: currentExpanded, viewportWidth: window.innerWidth }));
+    dispatch(tidyLayout({ expandedSessionIds: currentExpanded }));
 
     const expandedSet = new Set(currentExpanded);
     const { cards: tidied, viewCards: tidiedViews, browserCards: tidiedBrowsers } = store.getState().dashboardLayout;
@@ -1595,17 +1563,20 @@ const DashboardInner: React.FC<DashboardProps> = ({ dashboardId, isActive = true
     }
 
     // Source 2: active browser-agent sessions (persistent — survives parent turn completion)
-    for (const seed of browserAgentTetherSeeds) {
-      if (glowTethers.has(seed.browser_id)) continue; // glow already covers this one
-      const t = browserTether(seed.browser_id, seed.parent_session_id, false, '');
-      if (t) glowTethers.set(seed.browser_id, t);
+    for (const s of sessionList) {
+      if (s.mode !== 'browser-agent') continue;
+      if (s.status !== 'running' && s.status !== 'waiting_approval') continue;
+      if (!s.browser_id || !s.parent_session_id) continue;
+      if (glowTethers.has(s.browser_id)) continue; // glow already covers this one
+      const t = browserTether(s.browser_id, s.parent_session_id, false, '');
+      if (t) glowTethers.set(s.browser_id, t);
     }
 
     const browserTethers = Array.from(glowTethers.values()).filter(Boolean) as Array<{ key: string; path: string; labelX: number; labelY: number; label: string; fading: boolean }>;
 
     return [...agentTethers, ...browserTethers];
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [glowingAgentCards, glowingBrowserCards, cards, browserCards, expandedSessionIds, liveDragInfo, measuredHeightsTick, browserAgentTetherSeeds]);
+  }, [glowingAgentCards, glowingBrowserCards, cards, browserCards, expandedSessionIds, liveDragInfo, measuredHeightsTick, sessionList]);
 
   const dotSize = Math.max(1, 1.5 * canvas.zoom);
   const dotSpacing = 24 * canvas.zoom;

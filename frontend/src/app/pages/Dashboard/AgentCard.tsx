@@ -109,27 +109,6 @@ function getAgentWorkTime(messages: Array<{ role: string; timestamp: string }>, 
   return { total, last };
 }
 
-const ElapsedTime: React.FC<{
-  messages: Array<{ role: string; timestamp: string }>;
-  status: string;
-  sx?: Record<string, any>;
-}> = React.memo(({ messages, status, sx }) => {
-  const [, setTick] = useState(0);
-  const isLive = status === 'running' || status === 'waiting_approval';
-
-  useEffect(() => {
-    if (!isLive) return;
-    const interval = setInterval(() => setTick((t) => t + 1), 1000);
-    return () => clearInterval(interval);
-  }, [isLive]);
-
-  return (
-    <Typography variant="caption" sx={sx}>
-      {fmtSeconds(getAgentWorkTime(messages, status).last)}
-    </Typography>
-  );
-});
-
 function summarizeToolInput(toolName: string, toolInput: Record<string, any>): string {
   const mcp = parseMcpToolName(toolName);
   if (mcp.isMcp) {
@@ -316,6 +295,7 @@ const AgentCard: React.FC<Props> = ({
     draft: { color: c.accent.primary, bg: c.bg.secondary },
   };
 
+  const [, setTick] = useState(0);
   const isDraft = session.status === 'draft';
 
   // ---- Drag via header (pointer events) ----
@@ -504,6 +484,13 @@ const AgentCard: React.FC<Props> = ({
     }
   };
 
+
+  useEffect(() => {
+    if (session.status === 'running' || session.status === 'waiting_approval') {
+      const interval = setInterval(() => setTick((t) => t + 1), 1000);
+      return () => clearInterval(interval);
+    }
+  }, [session.status]);
 
   const lastMessage = session.messages[session.messages.length - 1];
   const isStreaming = !!session.streamingMessage;
@@ -894,7 +881,9 @@ const AgentCard: React.FC<Props> = ({
           <Typography variant="caption" sx={{ color: c.text.tertiary }}>
             {session.mode}
           </Typography>
-          <ElapsedTime messages={session.messages} status={session.status} sx={{ color: c.text.tertiary }} />
+          <Typography variant="caption" sx={{ color: c.text.tertiary }}>
+            {fmtSeconds(getAgentWorkTime(session.messages, session.status).last)}
+          </Typography>
           {session.cost_usd > 0 && hasApiKey && (
             <Typography variant="caption" sx={{ color: c.accent.primary }}>
               ${session.cost_usd.toFixed(4)}

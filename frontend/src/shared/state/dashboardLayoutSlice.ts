@@ -185,14 +185,12 @@ export function findOpenGridCell(
   occupiedRects: Rect[],
   newW: number,
   newH: number,
-  viewportWidth?: number,
 ): { x: number; y: number } {
   const cellW = DEFAULT_CARD_W + GRID_GAP;
   const cellH = DEFAULT_CARD_H + GRID_GAP;
-  const vw = viewportWidth ?? (typeof window !== 'undefined' ? window.innerWidth : 0);
   const maxCols = Math.max(
     1,
-    Math.floor((vw - GRID_ORIGIN.x) / cellW) || GRID_COLS_FALLBACK,
+    Math.floor((window.innerWidth - GRID_ORIGIN.x) / cellW) || GRID_COLS_FALLBACK,
   );
 
   for (let row = 0; ; row++) {
@@ -267,9 +265,9 @@ const dashboardLayoutSlice = createSlice({
 
     reconcileSessions(
       state,
-      action: PayloadAction<{ sessionIds: string[]; expandedSessionIds: string[]; viewportWidth?: number }>,
+      action: PayloadAction<{ sessionIds: string[]; expandedSessionIds: string[] }>,
     ) {
-      const { sessionIds, expandedSessionIds, viewportWidth } = action.payload;
+      const { sessionIds, expandedSessionIds } = action.payload;
       const liveIds = new Set(sessionIds);
 
       for (const id of Object.keys(state.cards)) {
@@ -289,7 +287,7 @@ const dashboardLayoutSlice = createSlice({
           delete state.closedCardPositions[id];
         } else {
           const rects = collectOccupiedRects(state, expandedSessionIds);
-          const pos = findOpenGridCell(rects, DEFAULT_CARD_W, DEFAULT_CARD_H, viewportWidth);
+          const pos = findOpenGridCell(rects, DEFAULT_CARD_W, DEFAULT_CARD_H);
           state.cards[id] = {
             session_id: id,
             x: pos.x,
@@ -304,9 +302,8 @@ const dashboardLayoutSlice = createSlice({
 
     tidyLayout(
       state,
-      action: PayloadAction<{ expandedSessionIds: string[]; viewportWidth?: number }>,
+      action: PayloadAction<{ expandedSessionIds: string[] }>,
     ) {
-      const { viewportWidth } = action.payload;
       const expanded = new Set(action.payload.expandedSessionIds);
       const agentCards = Object.values(state.cards);
       const viewCards = Object.values(state.viewCards);
@@ -333,7 +330,7 @@ const dashboardLayoutSlice = createSlice({
           h = item.storedH;
         }
 
-        const pos = findOpenGridCell(placedRects, w, h, viewportWidth);
+        const pos = findOpenGridCell(placedRects, w, h);
         placedRects.push({ x: pos.x, y: pos.y, w, h });
 
         if (item.kind === 'agent') {
@@ -352,9 +349,8 @@ const dashboardLayoutSlice = createSlice({
     addViewCard(state, action: PayloadAction<{
       outputId: string; expandedSessionIds?: string[];
       x?: number; y?: number; width?: number; height?: number;
-      viewportWidth?: number;
     }>) {
-      const { outputId, expandedSessionIds, x, y, width, height, viewportWidth } = action.payload;
+      const { outputId, expandedSessionIds, x, y, width, height } = action.payload;
       if (state.viewCards[outputId]) return;
       let posX: number, posY: number;
       if (x != null && y != null) {
@@ -362,7 +358,7 @@ const dashboardLayoutSlice = createSlice({
         posY = y;
       } else {
         const rects = collectOccupiedRects(state, expandedSessionIds);
-        const pos = findOpenGridCell(rects, DEFAULT_VIEW_CARD_W, DEFAULT_VIEW_CARD_H, viewportWidth);
+        const pos = findOpenGridCell(rects, DEFAULT_VIEW_CARD_W, DEFAULT_VIEW_CARD_H);
         posX = pos.x;
         posY = pos.y;
       }
@@ -401,11 +397,11 @@ const dashboardLayoutSlice = createSlice({
       delete state.viewCards[action.payload];
     },
 
-    addBrowserCard(state, action: PayloadAction<{ url: string; expandedSessionIds?: string[]; viewportWidth?: number }>) {
+    addBrowserCard(state, action: PayloadAction<{ url: string; expandedSessionIds?: string[] }>) {
       const id = `browser-${Date.now().toString(36)}`;
       const tabId = generateTabId();
       const rects = collectOccupiedRects(state, action.payload.expandedSessionIds);
-      const pos = findOpenGridCell(rects, DEFAULT_BROWSER_CARD_W, DEFAULT_BROWSER_CARD_H, action.payload.viewportWidth);
+      const pos = findOpenGridCell(rects, DEFAULT_BROWSER_CARD_W, DEFAULT_BROWSER_CARD_H);
       state.browserCards[id] = {
         browser_id: id,
         url: action.payload.url,
@@ -466,10 +462,9 @@ const dashboardLayoutSlice = createSlice({
       action: PayloadAction<{
         tabs: BrowserTab[]; url: string; expandedSessionIds?: string[];
         id?: string; x?: number; y?: number; width?: number; height?: number;
-        viewportWidth?: number;
       }>
     ) {
-      const { x, y, width, height, viewportWidth } = action.payload;
+      const { x, y, width, height } = action.payload;
       const id = action.payload.id || `browser-${Date.now().toString(36)}`;
       const newTabs = action.payload.tabs.map((t) => ({
         id: generateTabId(),
@@ -484,7 +479,7 @@ const dashboardLayoutSlice = createSlice({
         posY = y;
       } else {
         const rects = collectOccupiedRects(state, action.payload.expandedSessionIds);
-        const pos = findOpenGridCell(rects, DEFAULT_BROWSER_CARD_W, DEFAULT_BROWSER_CARD_H, viewportWidth);
+        const pos = findOpenGridCell(rects, DEFAULT_BROWSER_CARD_W, DEFAULT_BROWSER_CARD_H);
         posX = pos.x;
         posY = pos.y;
       }
