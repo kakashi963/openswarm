@@ -91,6 +91,15 @@ if (-not (Test-Path (Join-Path $UvBinDir 'uvx.exe'))) {
 }
 Write-Host ""
 
+# --- Step 0a: Sync the splash icon ---
+# electron-builder excludes `build/` from the shipped asar (it's the icon-
+# source directory used to generate .ico). The splash window needs to read
+# the icon at runtime, so we keep a copy at electron\splash\icon.png which
+# IS shipped. See electron/main.js comment at iconPngPath for context.
+Copy-Item -Force `
+    (Join-Path $ProjectRoot 'electron\build\icon.png') `
+    (Join-Path $ProjectRoot 'electron\splash\icon.png')
+
 # --- Step 0b: Bundle npm MCP servers via esbuild ---
 # Each bundle compiles down to a single ~5-15 MB CommonJS file under
 # backend\mcp-bundles\, runs on Electron's bundled Node at runtime
@@ -289,6 +298,36 @@ function Copy-Excluded($Source, $Dest, $Exclude) {
 Copy-Excluded `
     (Join-Path $ProjectRoot 'backend') (Join-Path $Staging 'backend') `
     @{ Dirs = @('__pycache__','.venv','tools','tests'); Files = @('*.pyc','.env','.env.*') }
+
+# Generate a SAFE production .env containing ONLY OAuth provider credentials.
+# Drops APPLE_*/GH_TOKEN/BACKEND_PORT/etc. so signing keys + personal tokens
+# never ship to users. Per-user API keys (Anthropic/OpenAI/Gemini) come from
+# the in-app Settings UI. Backend's tools_lib.py:34 auto-loads this file.
+$ShipEnvKeys = @(
+    'GOOGLE_OAUTH_CLIENT_ID','GOOGLE_OAUTH_CLIENT_SECRET',
+    'NOTION_OAUTH_CLIENT_ID','NOTION_OAUTH_CLIENT_SECRET',
+    'AIRTABLE_OAUTH_CLIENT_ID','AIRTABLE_OAUTH_CLIENT_SECRET',
+    'HUBSPOT_OAUTH_CLIENT_ID','HUBSPOT_OAUTH_CLIENT_SECRET',
+    'DISCORD_OAUTH_CLIENT_ID','DISCORD_OAUTH_CLIENT_SECRET',
+    'DISCORD_BOT_TOKEN'
+)
+$DevEnvPath = Join-Path $ProjectRoot 'backend\.env'
+$ShipEnvPath = Join-Path $Staging 'backend\.env'
+if (Test-Path $DevEnvPath) {
+    $kept = Get-Content $DevEnvPath | Where-Object {
+        $line = $_
+        $keep = $false
+        foreach ($k in $ShipEnvKeys) {
+            if ($line -match "^$k=") { $keep = $true; break }
+        }
+        $keep
+    }
+    Set-Content -Path $ShipEnvPath -Value $kept
+    Write-Host "Staged OAuth credentials: $($kept.Count) keys (release secrets + personal API keys excluded)"
+} else {
+    Write-Host "WARNING: backend\.env not found — packaged build will have no OAuth credentials configured."
+    Set-Content -Path $ShipEnvPath -Value '' -NoNewline
+}
 New-Item -ItemType Directory -Force -Path (Join-Path $Staging 'backend\data\tools') | Out-Null
 
 Copy-Excluded `

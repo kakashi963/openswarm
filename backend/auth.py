@@ -88,6 +88,13 @@ _AUTH_EXEMPT_EXACT = {
     # Google/Anthropic/etc). The `state` query param is already a
     # one-time nonce validated against `_pending_oauth`.
     "/api/subscriptions/callback",
+    # Same pattern for the per-tool OAuth flow (Notion / Google Workspace /
+    # Airtable / HubSpot / Discord). The browser hits this with ?code=...&state=...
+    # after the user approves on the provider's site; the `state` param is
+    # the tool_id which we cross-check against _pending_oauth in tools_lib.py.
+    # Without this exemption the redirect lands a 401 page in the user's
+    # browser — see tools_lib.py:1156 where redirect_uri is constructed.
+    "/api/tools/oauth/callback",
     "/api/version",
 }
 

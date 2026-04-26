@@ -92,9 +92,14 @@ const isDev = process.env.ELECTRON_DEV === '1';
 const iconPath = process.platform === 'win32'
   ? path.join(__dirname, 'build', 'icon.ico')
   : path.join(__dirname, 'build', 'icon.png');
-// PNG version of the icon for the splash (icon.ico isn't a valid <img src>
-// payload across platforms, but icon.png works everywhere).
-const iconPngPath = path.join(__dirname, 'build', 'icon.png');
+// PNG version of the icon for the splash. We ship a copy at splash/icon.png
+// because electron-builder's `build/` directory is its inputs folder (used
+// to GENERATE the .icns bundled icon) and is NOT included in the shipped
+// asar archive — so `build/icon.png` exists in dev but ENOENTs in packaged
+// builds. `splash/` IS shipped (alongside splash.html), so reading from
+// there works in both modes. See the kept-in-sync copy command in the
+// build scripts (or just commit both).
+const iconPngPath = path.join(__dirname, 'splash', 'icon.png');
 
 function loadSplashDataUrl() {
   if (splashDataUrlCache) return splashDataUrlCache;

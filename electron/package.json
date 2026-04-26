@@ -97,8 +97,6 @@
         "to": "backend",
         "filter": [
           "**/*",
-          "!**/.env",
-          "!**/.env.*",
           "!**/tests/**",
           "!**/__pycache__/**"
         ]

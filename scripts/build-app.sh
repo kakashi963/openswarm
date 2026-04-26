@@ -97,6 +97,13 @@ else
 fi
 echo ""
 
+# Step 0a: Sync the splash icon. electron-builder excludes `build/` from
+# the shipped asar (it's the icon-source directory used to generate .icns/.ico),
+# so the splash window can't read build/icon.png at runtime. We keep a copy
+# at electron/splash/icon.png which IS shipped. See electron/main.js comment
+# at iconPngPath for context.
+cp "$PROJECT_ROOT/electron/build/icon.png" "$PROJECT_ROOT/electron/splash/icon.png"
+
 # Step 0b: Bundle npm MCP servers via esbuild
 # Each bundle compiles down to a single ~5-15 MB CommonJS file under
 # backend/mcp-bundles/, runs on Electron's bundled Node at runtime
@@ -283,6 +290,28 @@ rsync -a \
     --exclude='tests' --exclude='**/tests' \
     --exclude='.env' --exclude='.env.*' --exclude='**/.env' --exclude='**/.env.*' \
     "$PROJECT_ROOT/backend/" "$STAGING_DIR/backend/"
+
+# Generate a SAFE production .env containing ONLY the OAuth provider
+# credentials (the "OpenSwarm public OAuth app" identifiers — these are
+# the desktop-app pattern where the client secret isn't truly secret).
+# We deliberately DROP everything else from the dev .env:
+#   - APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID  (signing creds — must NOT ship)
+#   - GH_TOKEN                                                 (release upload token — must NOT ship)
+#   - BACKEND_PORT / DISCORD_BOT_PERMISSIONS                  (dev-only or trivially recomputable)
+# Backend's tools_lib.py:34 calls load_dotenv() on this path at startup,
+# so the OAuth flows pick these up automatically. Per-user API keys
+# (Anthropic, OpenAI, Gemini) come from the user's Settings UI, not from .env.
+SHIP_ENV_KEYS='^(GOOGLE_OAUTH_CLIENT_ID|GOOGLE_OAUTH_CLIENT_SECRET|NOTION_OAUTH_CLIENT_ID|NOTION_OAUTH_CLIENT_SECRET|AIRTABLE_OAUTH_CLIENT_ID|AIRTABLE_OAUTH_CLIENT_SECRET|HUBSPOT_OAUTH_CLIENT_ID|HUBSPOT_OAUTH_CLIENT_SECRET|DISCORD_OAUTH_CLIENT_ID|DISCORD_OAUTH_CLIENT_SECRET|DISCORD_BOT_TOKEN)='
+if [[ -f "$PROJECT_ROOT/backend/.env" ]]; then
+    # Only emit lines whose key matches the allow-list. Comment lines and
+    # blank lines are dropped (they're not needed in the shipped file).
+    grep -E "$SHIP_ENV_KEYS" "$PROJECT_ROOT/backend/.env" > "$STAGING_DIR/backend/.env" || true
+    KEY_COUNT=$(wc -l < "$STAGING_DIR/backend/.env" | tr -d ' ')
+    echo "Staged OAuth credentials: $KEY_COUNT keys (release secrets + personal API keys excluded)"
+else
+    echo "WARNING: backend/.env not found — packaged build will have no OAuth credentials configured."
+    : > "$STAGING_DIR/backend/.env"
+fi
 # Create empty tools directory so the app has a place to write
 mkdir -p "$STAGING_DIR/backend/data/tools"
 
