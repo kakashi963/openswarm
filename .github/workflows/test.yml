@@ -1,0 +1,44 @@
+name: Backend tests
+
+# Runs the backend pytest suite (mirrors `bash scripts/test.sh`) on every PR
+# and every push to main. Tests are fully self-contained — they stub the
+# Anthropic API and the Claude Code CLI — so no secrets or services are
+# required.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pytest:
+    name: pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install backend deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            -r backend/requirements.txt \
+            -r backend/requirements-dev.txt
+
+      - name: Run pytest
+        run: python -m pytest backend/tests/ -v
