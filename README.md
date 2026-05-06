@@ -160,7 +160,6 @@ backend/
   apps/
     agents/           Agent lifecycle, streaming, worktree management
     dashboards/       Dashboard CRUD and layout persistence
-    dashboard_layout/ Card positions and spatial canvas state
     templates/        Prompt template CRUD
     skills/           Skills CRUD (synced to ~/.claude/skills/)
     tools_lib/        MCP tool configuration and discovery

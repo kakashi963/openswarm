@@ -54,6 +54,10 @@ backend/coverage_html/
 backend/coverage.xml
 htmlcov/
 
+# Dead-code scan workspace (one-shot scratch — never committed)
+.dead-code-scan/
+backend/scripts/dead_code_scan.py
+
 # Editor noise — per-developer, never useful in repo
 .idea/
 .vscode/
