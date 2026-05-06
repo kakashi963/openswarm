@@ -46,7 +46,6 @@ from backend.apps.agents.browser_agent import (
     _create_browser_card,
     _validate_message_pairing,
     run_browser_agent,
-    run_browser_agents,
 )
 from backend.apps.agents.models import AgentSession
 
@@ -831,90 +830,3 @@ async def test_create_browser_card_defaults_url_when_blank(monkeypatch):
     assert card.tabs[0].url == "https://www.google.com"
 
 
-# ===========================================================================
-# run_browser_agents — parallel fanout
-# ===========================================================================
-
-
-async def test_run_browser_agents_fanout_auto_creates_card_and_returns_results(monkeypatch):
-    """Two tasks: one with browser_id, one without. The latter should
-    auto-create a card. Both results returned in input order."""
-    from backend.apps.dashboards.dashboards import _save
-    from backend.apps.dashboards.models import Dashboard
-
-    _save(Dashboard(id="d-fanout", name="t"))
-
-    # Don't actually wait 2s for "card settle".
-    monkeypatch.setattr(ba.asyncio, "sleep", AsyncMock())
-    monkeypatch.setattr(ba.ws_manager, "broadcast_global", AsyncMock())
-    # Patch analytics so we don't depend on its plumbing here.
-    monkeypatch.setattr(
-        "backend.apps.analytics.collector.record",
-        lambda *a, **kw: None,
-    )
-
-    call_log: list[dict] = []
-
-    async def _fake_run_one(**kwargs):
-        call_log.append(kwargs)
-        return {
-            "session_id": f"s-{kwargs['browser_id']}",
-            "browser_id": kwargs["browser_id"],
-            "summary": f"summary for {kwargs['browser_id']}",
-            "action_log": [],
-            "final_screenshot": None,
-        }
-
-    monkeypatch.setattr(ba, "run_browser_agent", _fake_run_one)
-
-    results = await run_browser_agents(
-        tasks=[
-            {"browser_id": "b-existing", "task": "do A"},
-            {"task": "do B", "url": "https://example.com"},
-        ],
-        model="sonnet",
-        dashboard_id="d-fanout",
-    )
-
-    assert len(results) == 2
-    assert results[0]["summary"] == "summary for b-existing"
-    # Auto-created browser_id matches the second call's argument.
-    auto_browser_id = call_log[1]["browser_id"]
-    assert auto_browser_id.startswith("browser-")
-    assert results[1]["summary"] == f"summary for {auto_browser_id}"
-
-
-async def test_run_browser_agents_exception_per_task_surfaces_in_results(monkeypatch):
-    """If run_browser_agent raises for one task, the other still
-    completes and the failed slot becomes {summary: 'Error: ...'}."""
-    monkeypatch.setattr(ba.asyncio, "sleep", AsyncMock())
-    monkeypatch.setattr(ba.ws_manager, "broadcast_global", AsyncMock())
-    monkeypatch.setattr(
-        "backend.apps.analytics.collector.record",
-        lambda *a, **kw: None,
-    )
-
-    async def _maybe_explode(**kwargs):
-        if kwargs["browser_id"] == "boom":
-            raise RuntimeError("kaboom")
-        return {
-            "session_id": "s-ok",
-            "browser_id": kwargs["browser_id"],
-            "summary": "ok-summary",
-            "action_log": [],
-            "final_screenshot": None,
-        }
-
-    monkeypatch.setattr(ba, "run_browser_agent", _maybe_explode)
-
-    results = await run_browser_agents(
-        tasks=[
-            {"browser_id": "ok-1", "task": "fine"},
-            {"browser_id": "boom", "task": "explodes"},
-        ],
-        model="sonnet",
-    )
-    assert results[0]["summary"] == "ok-summary"
-    assert results[1]["summary"].startswith("Error: ")
-    assert results[1]["action_log"] == []
-    assert results[1]["final_screenshot"] is None

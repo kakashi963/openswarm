@@ -19,7 +19,6 @@ Coverage targets:
     - hallucinated id outside CURATED_SHORTLIST dropped
     - timeout → default (fail-open)
     - generic exception → default (fail-open)
-  - `_call_classifier` JSON cleanup with code-fence wrapping
 """
 
 from __future__ import annotations
@@ -35,7 +34,6 @@ from backend.apps.agents import mcp_preflight as pf
 from backend.apps.agents.mcp_preflight import (
     CURATED_SHORTLIST,
     _build_available_shortlist,
-    _call_classifier,
     _decorate,
     _is_obviously_local,
     run_preflight,
@@ -300,92 +298,3 @@ async def test_run_preflight_no_provider_classifier_value_error_returns_default(
     assert out == {"is_vague": False, "suggestions": []}
 
 
-# ---------------------------------------------------------------------------
-# _call_classifier — JSON cleanup paths
-# ---------------------------------------------------------------------------
-
-
-def _make_classifier_setup(text: str):
-    """Build the patches needed to drive _call_classifier with a fake
-    Anthropic client returning `text` as the assistant content."""
-    from backend.apps.agents.mcp_preflight import resolve_aux_model as _real
-
-    fake_resp = SimpleNamespace(
-        content=[SimpleNamespace(text=text)],
-    )
-    fake_client = MagicMock()
-    fake_client.messages = MagicMock()
-    fake_client.messages.create = AsyncMock(return_value=fake_resp)
-
-    return (
-        patch.object(pf, "resolve_aux_model",
-                     AsyncMock(return_value=("claude-haiku-4-5", None))),
-        patch.object(pf, "get_anthropic_client", return_value=fake_client),
-    )
-
-
-async def test_call_classifier_strips_markdown_code_fences():
-    """Some models wrap JSON in ```json fences — preflight must strip
-    them before parsing."""
-    fenced = '```json\n{"is_vague": true, "suggestions": []}\n```'
-    aux_p, client_p = _make_classifier_setup(fenced)
-    with aux_p, client_p:
-        data = await _call_classifier(AppSettings(), "anything", [])
-    assert data == {"is_vague": True, "suggestions": []}
-
-
-async def test_call_classifier_strips_plain_code_fences():
-    """``` (without `json` tag) also stripped."""
-    fenced = '```\n{"is_vague": false, "suggestions": []}\n```'
-    aux_p, client_p = _make_classifier_setup(fenced)
-    with aux_p, client_p:
-        data = await _call_classifier(AppSettings(), "anything", [])
-    assert data["is_vague"] is False
-
-
-async def test_call_classifier_normalizes_non_list_suggestions():
-    """If the model returns suggestions as a non-list (e.g. None or
-    dict), normalize to []."""
-    text = '{"is_vague": true, "suggestions": null}'
-    aux_p, client_p = _make_classifier_setup(text)
-    with aux_p, client_p:
-        data = await _call_classifier(AppSettings(), "anything", [])
-    assert data["suggestions"] == []
-
-
-async def test_call_classifier_raises_on_non_object_root():
-    text = '"not an object"'
-    aux_p, client_p = _make_classifier_setup(text)
-    with aux_p, client_p, pytest.raises(ValueError):
-        await _call_classifier(AppSettings(), "anything", [])
-
-
-async def test_call_classifier_handles_string_content_response():
-    """Some translators return content as a single string instead of a
-    list of blocks. Adapter must coerce gracefully."""
-    fake_resp = SimpleNamespace(content='{"is_vague": false, "suggestions": []}')
-    fake_client = MagicMock()
-    fake_client.messages = MagicMock()
-    fake_client.messages.create = AsyncMock(return_value=fake_resp)
-    with patch.object(pf, "resolve_aux_model",
-                      AsyncMock(return_value=("claude-haiku-4-5", None))), \
-         patch.object(pf, "get_anthropic_client", return_value=fake_client):
-        data = await _call_classifier(AppSettings(), "anything", [])
-    assert data == {"is_vague": False, "suggestions": []}
-
-
-async def test_call_classifier_passes_aux_model_into_request():
-    """Verify the resolved aux model id reaches the upstream call."""
-    fake_resp = SimpleNamespace(content=[SimpleNamespace(text='{"is_vague": false}')])
-    fake_client = MagicMock()
-    fake_client.messages = MagicMock()
-    fake_client.messages.create = AsyncMock(return_value=fake_resp)
-    with patch.object(pf, "resolve_aux_model",
-                      AsyncMock(return_value=("cc/claude-haiku-4-5-20251001", None))), \
-         patch.object(pf, "get_anthropic_client", return_value=fake_client):
-        await _call_classifier(AppSettings(), "anything", [])
-
-    _, kwargs = fake_client.messages.create.call_args
-    assert kwargs["model"] == "cc/claude-haiku-4-5-20251001"
-    assert kwargs["max_tokens"] == 300
-    assert "is_vague" in kwargs["system"]

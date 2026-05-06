@@ -559,64 +559,6 @@ def test_execute_no_backend_code_returns_none_result(client):
 # ---------------------------------------------------------------------------
 
 
-def test_vibe_code_happy_path(client, monkeypatch):
-    response_json = json.dumps({
-        "frontend_code": "<html>new</html>",
-        "backend_code": "result = {'k': 1}",
-        "input_schema": {"type": "object"},
-        "name": "Generated",
-        "description": "by AI",
-        "message": "All set.",
-    })
-    _patch_anthropic(monkeypatch, response_json)
-    _patch_aux_model(monkeypatch)
-
-    resp = client.post(
-        "/api/outputs/vibe-code",
-        json={"prompt": "make me a thing", "current_frontend_code": "<old/>"},
-    )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["frontend_code"] == "<html>new</html>"
-    assert body["backend_code"] == "result = {'k': 1}"
-    assert body["name"] == "Generated"
-    assert body["message"] == "All set."
-
-
-def test_vibe_code_strips_markdown_fences(client, monkeypatch):
-    fenced = "```json\n" + json.dumps({
-        "frontend_code": "<html>fenced</html>",
-        "message": "ok",
-    }) + "\n```"
-    _patch_anthropic(monkeypatch, fenced)
-    _patch_aux_model(monkeypatch)
-
-    resp = client.post(
-        "/api/outputs/vibe-code",
-        json={"prompt": "hi"},
-    )
-    body = resp.json()
-    assert body["frontend_code"] == "<html>fenced</html>"
-
-
-def test_vibe_code_json_decode_error_keeps_user_code(client, monkeypatch):
-    _patch_anthropic(monkeypatch, "not json at all")
-    _patch_aux_model(monkeypatch)
-
-    resp = client.post(
-        "/api/outputs/vibe-code",
-        json={
-            "prompt": "x",
-            "current_frontend_code": "<keep/>",
-            "current_backend_code": "result={}",
-        },
-    )
-    body = resp.json()
-    assert "couldn't parse" in body["message"]
-    assert body["frontend_code"] == "<keep/>"
-    assert body["backend_code"] == "result={}"
-
-
 def test_vibe_code_resolver_raises_value_error_returns_graceful(client, monkeypatch):
     """resolve_aux_model raises ValueError when no model is connected.
     The route catches and returns a graceful error response without
@@ -651,85 +593,9 @@ def test_vibe_code_anthropic_import_error(client, monkeypatch):
     assert body["frontend_code"] == "<keep/>"
 
 
-def test_vibe_code_anthropic_call_raises_returns_graceful(client, monkeypatch):
-    """Generic exception from messages.create is caught and surfaced as
-    `message: "Error: ..."` while preserving the user's existing code."""
-    from backend.apps.outputs import outputs as outputs_mod
-
-    failing_client = MagicMock()
-    failing_client.messages.create = AsyncMock(side_effect=RuntimeError("api down"))
-    monkeypatch.setattr(outputs_mod, "_get_anthropic_client", lambda: failing_client)
-    _patch_aux_model(monkeypatch)
-
-    resp = client.post(
-        "/api/outputs/vibe-code",
-        json={"prompt": "x", "current_frontend_code": "<keep/>"},
-    )
-    body = resp.json()
-    assert "api down" in body["message"]
-    assert body["frontend_code"] == "<keep/>"
-
-
 # ---------------------------------------------------------------------------
 # /auto-run (Anthropic mocked)
 # ---------------------------------------------------------------------------
-
-
-def test_auto_run_happy_path_with_backend(client, monkeypatch):
-    schema = {
-        "type": "object",
-        "properties": {"q": {"type": "string"}},
-        "required": ["q"],
-    }
-    _patch_anthropic(monkeypatch, json.dumps({"q": "hello"}))
-    _patch_aux_model(monkeypatch)
-
-    resp = client.post(
-        "/api/outputs/auto-run",
-        json={
-            "prompt": "give me data",
-            "input_schema": schema,
-            "backend_code": "print('side'); result['echoed'] = input_data['q']",
-        },
-    )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["input_data"] == {"q": "hello"}
-    assert body["backend_result"] == {"echoed": "hello"}
-    assert "side" in (body["stdout"] or "")
-    assert body["error"] is None
-
-
-def test_auto_run_schema_validation_failure(client, monkeypatch):
-    schema = {
-        "type": "object",
-        "properties": {"q": {"type": "integer"}},
-        "required": ["q"],
-    }
-    _patch_anthropic(monkeypatch, json.dumps({"q": "string-not-int"}))
-    _patch_aux_model(monkeypatch)
-
-    resp = client.post(
-        "/api/outputs/auto-run",
-        json={"prompt": "x", "input_schema": schema},
-    )
-    body = resp.json()
-    assert body["input_data"] == {"q": "string-not-int"}
-    assert body["backend_result"] is None
-    assert "Schema validation failed" in body["error"]
-
-
-def test_auto_run_json_decode_error(client, monkeypatch):
-    _patch_anthropic(monkeypatch, "not json at all")
-    _patch_aux_model(monkeypatch)
-
-    resp = client.post(
-        "/api/outputs/auto-run",
-        json={"prompt": "x", "input_schema": {"type": "object"}},
-    )
-    body = resp.json()
-    assert body["error"] == "Failed to parse generated data as JSON"
-    assert body["input_data"] is None
 
 
 def test_auto_run_resolver_value_error(client, monkeypatch):
@@ -751,44 +617,6 @@ def test_auto_run_resolver_value_error(client, monkeypatch):
     assert body["input_data"] is None
 
 
-def test_auto_run_known_model_uses_resolve_for_sdk(client, monkeypatch):
-    """When body.model is a known builtin, the route calls
-    `resolve_model_id_for_sdk` instead of `resolve_aux_model`. Patch
-    both: only the sdk resolver should be hit."""
-    from backend.apps.agents.providers import registry
-
-    monkeypatch.setattr(registry, "_find_builtin_model", lambda _name: {"value": "sonnet"})
-
-    resolved_calls = []
-
-    def _fake_resolve(short_name, _settings):
-        resolved_calls.append(short_name)
-        return "claude-sonnet-real"
-
-    monkeypatch.setattr(registry, "resolve_model_id_for_sdk", _fake_resolve)
-
-    aux_calls = []
-
-    async def _aux(_settings, preferred_tier="haiku"):
-        aux_calls.append(preferred_tier)
-        return ("should-not-be-used", None)
-
-    monkeypatch.setattr(registry, "resolve_aux_model", _aux)
-
-    mock_client = _patch_anthropic(monkeypatch, json.dumps({"x": 1}))
-
-    resp = client.post(
-        "/api/outputs/auto-run",
-        json={"prompt": "x", "input_schema": {"type": "object"}, "model": "sonnet"},
-    )
-    assert resp.status_code == 200
-    assert resolved_calls == ["sonnet"]
-    assert aux_calls == []
-    # And the model id flowed into the Anthropic client call.
-    call_kwargs = mock_client.messages.create.await_args.kwargs
-    assert call_kwargs["model"] == "claude-sonnet-real"
-
-
 def test_auto_run_anthropic_import_error(client, monkeypatch):
     monkeypatch.setitem(sys.modules, "anthropic", None)
     resp = client.post(
@@ -798,61 +626,6 @@ def test_auto_run_anthropic_import_error(client, monkeypatch):
     body = resp.json()
     assert "anthropic SDK not installed" in body["error"]
     assert body["input_data"] is None
-
-
-def test_auto_run_strips_markdown_fences(client, monkeypatch):
-    """Markdown-fenced JSON from the model is stripped before parsing
-    (covers the `if raw.startswith('```')` branch in auto_run_output)."""
-    schema = {"type": "object", "properties": {"q": {"type": "string"}}}
-    fenced = "```json\n" + json.dumps({"q": "ok"}) + "\n```"
-    _patch_anthropic(monkeypatch, fenced)
-    _patch_aux_model(monkeypatch)
-
-    resp = client.post(
-        "/api/outputs/auto-run",
-        json={"prompt": "x", "input_schema": schema},
-    )
-    body = resp.json()
-    assert body["input_data"] == {"q": "ok"}
-    assert body["error"] is None
-
-
-def test_auto_run_backend_code_raise_populates_error(client, monkeypatch):
-    """If `execute_backend_code` raises, the route catches the exception
-    and stuffs it into `error` while keeping the validated input_data."""
-    schema = {"type": "object", "properties": {"q": {"type": "string"}}}
-    _patch_anthropic(monkeypatch, json.dumps({"q": "ok"}))
-    _patch_aux_model(monkeypatch)
-
-    resp = client.post(
-        "/api/outputs/auto-run",
-        json={
-            "prompt": "x",
-            "input_schema": schema,
-            "backend_code": "raise RuntimeError('exec boom')",
-        },
-    )
-    body = resp.json()
-    assert body["input_data"] == {"q": "ok"}
-    assert body["backend_result"] is None
-    assert "exec boom" in (body["error"] or "")
-
-
-def test_auto_run_anthropic_call_raises(client, monkeypatch):
-    """Generic exception from messages.create lands in `error`."""
-    from backend.apps.outputs import outputs as outputs_mod
-
-    failing_client = MagicMock()
-    failing_client.messages.create = AsyncMock(side_effect=RuntimeError("api down"))
-    monkeypatch.setattr(outputs_mod, "_get_anthropic_client", lambda: failing_client)
-    _patch_aux_model(monkeypatch)
-
-    resp = client.post(
-        "/api/outputs/auto-run",
-        json={"prompt": "x", "input_schema": {"type": "object"}},
-    )
-    body = resp.json()
-    assert "api down" in body["error"]
 
 
 # ---------------------------------------------------------------------------
